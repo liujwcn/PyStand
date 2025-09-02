@@ -432,8 +432,14 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
             "    test = os.path.abspath(os.path.join(PYSTAND_HOME, n))\n"
             "    if os.path.exists(test):\n"
             "        site.addsitedir(test)\n"
-            "import main\n"
-            "main.main()\n";
+            "import multiprocessing\n"
+            "import sys\n"
+            "import app\n"
+            "if __name__ == "__main__":\n"
+            "    if not hasattr(sys, 'frozen'):\n"
+            "        sys.frozen = True\n"
+            "    multiprocessing.freeze_support()\n"
+            "    app.start()\n";
         int hr = ps.RunString(default_script);
         return hr;
     } else if (ret != 0) {
@@ -459,3 +465,4 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
     int hr = ps.RunString(init_script);
     return hr;
 }
+
