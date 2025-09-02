@@ -435,7 +435,7 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
             "import multiprocessing\n"
             "import sys\n"
             "import app\n"
-            "if __name__ == "__main__":\n"
+            "if __name__ == '__main__':\n"
             "    if not hasattr(sys, 'frozen'):\n"
             "        sys.frozen = True\n"
             "    multiprocessing.freeze_support()\n"
@@ -465,4 +465,5 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
     int hr = ps.RunString(init_script);
     return hr;
 }
+
 
