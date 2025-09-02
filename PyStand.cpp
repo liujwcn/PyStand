@@ -304,12 +304,7 @@ int PyStand::DetectScript()
 			}
 		}
 		if (_script.size() == 0) {
-			std::wstring msg = L"Can't find either of:\r\n";
-			for (int j = 0; j < (int)scripts.size(); j++) {
-				msg += scripts[j] + L"\r\n";
-			}
-			MessageBoxW(NULL, msg.c_str(), L"ERROR", MB_OK);
-			return -1;
+			return 1;
 		}
 	}
 	SetEnvironmentVariableW(L"PYSTAND_SCRIPT", _script.c_str());
@@ -398,29 +393,69 @@ int WINAPI
 WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
 #endif
 {
-	PyStand ps("runtime");
-	if (ps.DetectScript() != 0) {
-		return 3;
-	}
+    PyStand ps("runtime");
+    int ret = ps.DetectScript();
+    if (ret == 1) {
+        // 没有找到脚本文件，运行默认代码
+        const char* default_script =
+            "import sys\n"
+            "import os\n"
+            "import site\n"
+            "PYSTAND = os.environ['PYSTAND']\n"
+            "PYSTAND_HOME = os.environ['PYSTAND_HOME']\n"
+            "PYSTAND_RUNTIME = os.environ['PYSTAND_RUNTIME']\n"
+            "sys.path_origin = [n for n in sys.path]\n"
+            "sys.PYSTAND = PYSTAND\n"
+            "sys.PYSTAND_HOME = PYSTAND_HOME\n"
+            "def MessageBox(msg, info = 'Message'):\n"
+            "    import ctypes\n"
+            "    ctypes.windll.user32.MessageBoxW(None, str(msg), str(info), 0)\n"
+            "    return 0\n"
+            "os.MessageBox = MessageBox\n"
 #ifndef PYSTAND_CONSOLE
-	if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-		freopen("CONOUT$", "w", stdout);
-		freopen("CONOUT$", "w", stderr);
-		int fd = _fileno(stdout);
-		if (fd >= 0) {
-			std::string fn = std::to_string(fd);
-			SetEnvironmentVariableA("PYSTAND_STDOUT", fn.c_str());
-		}
-		fd = _fileno(stdin);
-		if (fd >= 0) {
-			std::string fn = std::to_string(fd);
-			SetEnvironmentVariableA("PYSTAND_STDIN", fn.c_str());
-		}
-	}
+            "try:\n"
+            "    fd = os.open('CONOUT$', os.O_RDWR | os.O_BINARY)\n"
+            "    fp = os.fdopen(fd, 'w')\n"
+            "    sys.stdout = fp\n"
+            "    sys.stderr = fp\n"
+            "    attached = True\n"
+            "except Exception as e:\n"
+            "    attached = False\n"
+            "    try:\n"
+            "        fp = open(os.devnull, 'w', errors='ignore')\n"
+            "        sys.stdout = fp\n"
+            "        sys.stderr = fp\n"
+            "    except:\n"
+            "        pass\n"
 #endif
-	int hr = ps.RunString(init_script);
-	// printf("finalize\n");
-	return hr;
+            "for n in ['.', 'lib', 'site-packages', 'runtime']:\n"
+            "    test = os.path.abspath(os.path.join(PYSTAND_HOME, n))\n"
+            "    if os.path.exists(test):\n"
+            "        site.addsitedir(test)\n"
+            "import main\n"
+            "main.main()\n";
+        int hr = ps.RunString(default_script);
+        return hr;
+    } else if (ret != 0) {
+        return 3; // 其他错误
+    }
+
+#ifndef PYSTAND_CONSOLE
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+        freopen("CONOUT$", "w", stdout);
+        freopen("CONOUT$", "w", stderr);
+        int fd = _fileno(stdout);
+        if (fd >= 0) {
+            std::string fn = std::to_string(fd);
+            SetEnvironmentVariableA("PYSTAND_STDOUT", fn.c_str());
+        }
+        fd = _fileno(stdin);
+        if (fd >= 0) {
+            std::string fn = std::to_string(fd);
+            SetEnvironmentVariableA("PYSTAND_STDIN", fn.c_str());
+        }
+    }
+#endif
+    int hr = ps.RunString(init_script);
+    return hr;
 }
-
-
