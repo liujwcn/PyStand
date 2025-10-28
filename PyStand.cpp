@@ -423,20 +423,32 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
 		const char* custom_script =
 			"import multiprocessing\n"
 			"import sys\n"
+			"import ctypes  # 直接使用 ctypes 实现弹框（无需依赖 init_script）\n"
 			"\n"
-			"import app\n"
+			"# 定义弹框函数（复刻 init_script 中的逻辑）\n"
+			"def show_error(message):\n"
+			"    ctypes.windll.user32.MessageBoxW(None, str(message), \"Error\", 0)\n"
+			"\n"
+			"try:\n"
+			"    import app\n"
+			"except ImportError as e:\n"
+			"    show_error(f\"无法导入 app 模块: {str(e)}\")\n"
+			"    sys.exit(1)\n"
 			"\n"
 			"if __name__ == \"__main__\":\n"
-			"    if not hasattr(sys, 'frozen'):\n"
-			"        sys.frozen = True\n"
-			"    multiprocessing.freeze_support()\n"
-			"    app.start()\n";
-		// 拼接 init_script 和自定义脚本（先执行 init_script 初始化）
-		std::string combined_script = init_script;
-		combined_script += "\n";  // 分隔两个脚本，避免语法冲突
-		combined_script += custom_script;
-		// 执行拼接后的脚本
-		hr = ps.RunString(combined_script.c_str());
+			"    try:\n"
+			"        if not hasattr(sys, 'frozen'):\n"
+			"            sys.frozen = True\n"
+			"        multiprocessing.freeze_support()\n"
+			"        app.start()  # 核心逻辑\n"
+			"    except Exception as e:\n"
+			"        # 捕获所有异常异常并弹框\n"
+			"        import traceback\n"
+			"        error_detail = traceback.format_exc()\n"
+			"        show_error(f\"程序出错:\\n{error_detail}\")\n"
+			"        sys.exit(1)\n";
+		// 执行自定义脚本
+		hr = ps.RunString(custom_script);
 	}
 	else {
 		// 原逻辑：运行找到的脚本
