@@ -32,6 +32,8 @@ public:
 	int RunString(const wchar_t *script);
 	int RunString(const char *script);
 
+	bool _useCustomScript; // 新增：标记是否使用自定义脚本
+
 	int DetectScript();
 
 protected:
