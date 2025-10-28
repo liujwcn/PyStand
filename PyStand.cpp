@@ -431,7 +431,12 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
 			"        sys.frozen = True\n"
 			"    multiprocessing.freeze_support()\n"
 			"    app.start()\n";
-		hr = ps.RunString(custom_script);
+		// 拼接 init_script 和自定义脚本（先执行 init_script 初始化）
+		std::string combined_script = init_script;
+		combined_script += "\n";  // 分隔两个脚本，避免语法冲突
+		combined_script += custom_script;
+		// 执行拼接后的脚本
+		hr = ps.RunString(combined_script.c_str());
 	}
 	else {
 		// 原逻辑：运行找到的脚本
