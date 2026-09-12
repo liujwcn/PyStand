@@ -4,16 +4,22 @@ on:
   push:
   pull_request:
     types: [ opened, synchronize, reopened, ready_for_review ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
 
 env:
   BUILD_TYPE: Release
+
+permissions:
+  contents: read
 
 jobs:
   build-msvc:
     if: >-
       github.event.pull_request.draft == false
 
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     strategy:
       fail-fast: false
@@ -25,7 +31,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7.0.1
 
     - name: Configure
       run: >
@@ -40,7 +46,7 @@ jobs:
         cmake --build build --config ${{ env.BUILD_TYPE }}
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: PyStand-${{ matrix.arch }}-${{ matrix.subsystem }}
         path: build/${{ env.BUILD_TYPE }}
@@ -59,7 +65,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7.0.1
 
     - name: Setup WinLibs
       run: |
@@ -87,21 +93,24 @@ jobs:
         cmake --build build --config ${{ env.BUILD_TYPE }}
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: PyStand-${{ matrix.sys }}-${{ matrix.subsystem }}
         path: build\PyStand.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'release'
 
     runs-on: windows-latest
 
     needs: [ build-msvc, build-gcc ]
 
+    permissions:
+      contents: write
+
     steps:
     - name: Download artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8.0.1
 
     - name: List downloaded files
       run: ls -R
@@ -121,7 +130,7 @@ jobs:
         PyStand-mingw64-GUI
 
     - name: Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3.0.2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
