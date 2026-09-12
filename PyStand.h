@@ -32,9 +32,9 @@ public:
 	int RunString(const wchar_t *script);
 	int RunString(const char *script);
 
-	bool _useCustomScript; // 新增：标记是否使用自定义脚本
 
 	int DetectScript();
+	bool _useCustomScript; // true: run the embedded startup script (main.py)
 
 protected:
 	bool CheckEnviron(const wchar_t *rtp);

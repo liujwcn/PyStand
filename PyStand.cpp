@@ -379,6 +379,74 @@ const char *init_script =
 
 
 //---------------------------------------------------------------------
+// embedded startup script: used when there is no PyStand.int/PyStand.py/
+// PyStand.pyw next to the exe.
+//
+// It only prepares the environment (PYSTAND_* constants, stdio, sys.path)
+// and then executes PYSTAND_HOME\main.py, which holds the application
+// startup logic - see main.py in this repository, the single source of
+// truth.  build/gen_embed.py copies these python lines from EMBED_PY there,
+// so this file and main.py cannot drift apart.
+//---------------------------------------------------------------------
+const char *startup_script =
+	"import sys\n"
+	"import os\n"
+	"import site\n"
+	"PYSTAND = os.environ.get('PYSTAND', '')\n"
+	"PYSTAND_HOME = os.environ['PYSTAND_HOME']\n"
+	"PYSTAND_RUNTIME = os.environ.get('PYSTAND_RUNTIME', '')\n"
+	"sys.PYSTAND = PYSTAND\n"
+	"sys.PYSTAND_HOME = PYSTAND_HOME\n"
+	"sys.path_origin = [n for n in sys.path]\n"
+	"def MessageBox(msg, info = 'Message'):\n"
+	"    import ctypes\n"
+	"    ctypes.windll.user32.MessageBoxW(None, str(msg), str(info), 0)\n"
+	"    return 0\n"
+	"os.MessageBox = MessageBox\n"
+	"# attach to the parent console when there is one; a windowed build without a\n"
+	"# console must still have working stdout/stderr, so send them to nul\n"
+	"try:\n"
+	"    fd = os.open('CONOUT$', os.O_RDWR | os.O_BINARY)\n"
+	"    fp = os.fdopen(fd, 'w')\n"
+	"    sys.stdout = fp\n"
+	"    sys.stderr = fp\n"
+	"    attached = True\n"
+	"except Exception:\n"
+	"    attached = False\n"
+	"    try:\n"
+	"        fp = open(os.devnull, 'w', errors='ignore')\n"
+	"        sys.stdout = fp\n"
+	"        sys.stderr = fp\n"
+	"    except Exception:\n"
+	"        pass\n"
+	"for n in ['.', 'lib', 'site-packages', 'runtime']:\n"
+	"    test = os.path.abspath(os.path.join(PYSTAND_HOME, n))\n"
+	"    if os.path.exists(test):\n"
+	"        site.addsitedir(test)\n"
+	"# run the application startup script kept next to the exe\n"
+	"script = os.path.join(PYSTAND_HOME, 'main.py')\n"
+	"if not os.path.isfile(script):\n"
+	"    os.MessageBox('Cannot find ' + script, 'ERROR')\n"
+	"    sys.exit(2)\n"
+	"sys.argv = [script] + sys.argv[1:]\n"
+	"environ = {'__file__': script, '__name__': '__main__', '__package__': None}\n"
+	"with open(script, 'rb') as fp:\n"
+	"    code = compile(fp.read(), script, 'exec')\n"
+	"try:\n"
+	"    exec(code, environ)\n"
+	"except SystemExit:\n"
+	"    raise\n"
+	"except Exception:\n"
+	"    if attached:\n"
+	"        raise\n"
+	"    import traceback, io\n"
+	"    sio = io.StringIO()\n"
+	"    traceback.print_exc(file = sio)\n"
+	"    os.MessageBox(sio.getvalue(), 'Error')\n"
+	"    sys.exit(1)\n"
+	"";
+
+//---------------------------------------------------------------------
 // main
 //---------------------------------------------------------------------
 
@@ -416,87 +484,15 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
 		}
 	}
 #endif
-	// 在 main 函数末尾修改执行逻辑
 	int hr;
+	// DetectScript() sets this flag when no PyStand.int/.py/.pyw exists next
+	// to the exe; the embedded startup script then runs main.py.
 	if (ps._useCustomScript) {
-		// 自定义脚本内容
-		const char* custom_script =
-			"import sys\n"
-			"import os\n"
-			"import copy\n"
-			"import site\n"
-			"import multiprocessing\n"
-			"import ctypes\n"  // 保留ctypes以防万一，实际可复用init_script的MessageBox\n"
-			"\n"
-			"# ====== 复用init_script的初始化逻辑 ======\n"
-			"PYSTAND = os.environ['PYSTAND']\n"
-			"PYSTAND_HOME = os.environ['PYSTAND_HOME']\n"
-			"PYSTAND_RUNTIME = os.environ['PYSTAND_RUNTIME']\n"
-			"\n"
-			"sys.path_origin = [n for n in sys.path]\n"
-			"sys.PYSTAND = PYSTAND\n"
-			"sys.PYSTAND_HOME = PYSTAND_HOME\n"
-			"\n"
-			"# 定义MessageBox（复用init_script逻辑）\n"
-			"def MessageBox(msg, info = 'Message'):\n"
-			"    import ctypes\n"
-			"    ctypes.windll.user32.MessageBoxW(None, str(msg), str(info), 0)\n"
-			"    return 0\n"
-			"os.MessageBox = MessageBox\n"
-			"\n"
-			"# 处理标准输出/错误流（非控制台版本）\n"
-			#ifndef PYSTAND_CONSOLE
-			"try:\n"
-			"    fd = os.open('CONOUT$', os.O_RDWR | os.O_BINARY)\n"
-			"    fp = os.fdopen(fd, 'w')\n"
-			"    sys.stdout = fp\n"
-			"    sys.stderr = fp\n"
-			"    attached = True\n"
-			"except Exception as e:\n"
-			"    attached = False\n"
-			"    try:\n"
-			"        fp = open(os.devnull, 'w', errors='ignore')\n"
-			"        sys.stdout = fp\n"
-			"        sys.stderr = fp\n"
-			"    except:\n"
-			"        pass\n"
-			#else
-			"attached = True  # 控制台版本默认有输出\n"
-			#endif
-			"\n"
-			"# 添加路径到sys.path\n"
-			"for n in ['.', 'lib', 'site-packages', 'runtime']:\n"
-			"    test = os.path.abspath(os.path.join(PYSTAND_HOME, n))\n"
-			"    if os.path.exists(test):\n"
-			"        site.addsitedir(test)\n"
-			"\n"
-			"# ====== 自定义脚本核心逻辑 ======\n"
-			"try:\n"
-			"    import app\n"
-			"except ImportError as e:\n"
-			"    os.MessageBox(f\"无法导入 app 模块: {str(e)}\", \"错误\")\n"  // 复用os.MessageBox\n"
-			"    sys.exit(1)\n"
-			"\n"
-			"if __name__ == \"__main__\":\n"
-			"    try:\n"
-			"        if not hasattr(sys, 'frozen'):\n"
-			"            sys.frozen = True\n"
-			"        multiprocessing.freeze_support()\n"
-			"        app.start()  # 核心逻辑\n"
-			"    except Exception as e:\n"
-			"        # 捕获所有异常并弹框（使用init_script定义的MessageBox）\n"
-			"        import traceback\n"
-			"        error_detail = traceback.format_exc()\n"
-			"        os.MessageBox(f\"程序出错:\\n{error_detail}\", \"错误\")\n"
-			"        sys.exit(1)\n";
-		// 执行自定义脚本
-		hr = ps.RunString(custom_script);
+		hr = ps.RunString(startup_script);
 	}
 	else {
-		// 原逻辑：运行找到的脚本
 		hr = ps.RunString(init_script);
 	}
 	return hr;
 }
-
 
