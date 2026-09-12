@@ -305,9 +305,11 @@ int PyStand::DetectScript()
 			}
 		}
 		if (_script.empty()) {
-			// 清除原有错误弹窗逻辑，设置一个标志位（需在类中新增成员）
+			// nothing next to the exe: main.py is embedded in this executable.
+			// PYSTAND_SCRIPT still names the canonical entry point, which does
+			// not have to exist on disk.
 			_useCustomScript = true;
-			return 0; // 返回成功，允许继续执行
+			_script = _home + L"\\main.py";
 		}
 	}
 	SetEnvironmentVariableW(L"PYSTAND_SCRIPT", _script.c_str());
@@ -378,15 +380,20 @@ const char *init_script =
 "";
 
 
+// ==== BEGIN GENERATED startup_script (tools/gen_embed.py) ====
 //---------------------------------------------------------------------
-// embedded startup script: used when there is no PyStand.int/PyStand.py/
-// PyStand.pyw next to the exe.
+// embedded startup script: used when there is no <exe name>.int/.py/.pyw
+// next to the executable.
 //
-// It only prepares the environment (PYSTAND_* constants, stdio, sys.path)
-// and then executes PYSTAND_HOME\main.py, which holds the application
-// startup logic - see main.py in this repository, the single source of
-// truth.  build/gen_embed.py copies these python lines from EMBED_PY there,
-// so this file and main.py cannot drift apart.
+// The bootstrap below only supplies what python cannot know by itself:
+// PYSTAND_* constants, os.MessageBox, stdout/stderr and sys.path.  Every bit
+// of application startup logic lives in main.py, whose text is embedded
+// verbatim between the two markers, which is what keeps PyStand.exe a single
+// self contained executable.
+//
+// Never edit the marked region by hand: edit main.py and run
+//     python tools/gen_embed.py
+// tools/check_embed.py reports any drift between this file and main.py.
 //---------------------------------------------------------------------
 const char *startup_script =
 	"import sys\n"
@@ -395,16 +402,19 @@ const char *startup_script =
 	"PYSTAND = os.environ.get('PYSTAND', '')\n"
 	"PYSTAND_HOME = os.environ['PYSTAND_HOME']\n"
 	"PYSTAND_RUNTIME = os.environ.get('PYSTAND_RUNTIME', '')\n"
+	"PYSTAND_SCRIPT = os.environ.get('PYSTAND_SCRIPT') or os.path.join(PYSTAND_HOME, 'main.py')\n"
 	"sys.PYSTAND = PYSTAND\n"
 	"sys.PYSTAND_HOME = PYSTAND_HOME\n"
+	"sys.PYSTAND_SCRIPT = PYSTAND_SCRIPT\n"
 	"sys.path_origin = [n for n in sys.path]\n"
 	"def MessageBox(msg, info = 'Message'):\n"
 	"    import ctypes\n"
 	"    ctypes.windll.user32.MessageBoxW(None, str(msg), str(info), 0)\n"
 	"    return 0\n"
 	"os.MessageBox = MessageBox\n"
-	"# attach to the parent console when there is one; a windowed build without a\n"
-	"# console must still have working stdout/stderr, so send them to nul\n"
+	"# attach to the console of the parent process when there is one; a windowed\n"
+	"# build without a console still needs working stdout/stderr, so send them to nul\n"
+	#ifndef PYSTAND_CONSOLE
 	"try:\n"
 	"    fd = os.open('CONOUT$', os.O_RDWR | os.O_BINARY)\n"
 	"    fp = os.fdopen(fd, 'w')\n"
@@ -419,32 +429,80 @@ const char *startup_script =
 	"        sys.stderr = fp\n"
 	"    except Exception:\n"
 	"        pass\n"
+	#else
+	"attached = True\n"
+	#endif
+	"# an unhandled error must never disappear: print it when a console is attached,\n"
+	"# otherwise put it into a message box\n"
+	"def _pystand_excepthook(t, v, tb):\n"
+	"    if attached:\n"
+	"        sys.__excepthook__(t, v, tb)\n"
+	"        return\n"
+	"    import traceback, io\n"
+	"    sio = io.StringIO()\n"
+	"    traceback.print_exception(t, v, tb, file = sio)\n"
+	"    os.MessageBox(sio.getvalue(), 'Error')\n"
+	"sys.excepthook = _pystand_excepthook\n"
+	"# the application directory and the usual sub directories must be importable\n"
 	"for n in ['.', 'lib', 'site-packages', 'runtime']:\n"
 	"    test = os.path.abspath(os.path.join(PYSTAND_HOME, n))\n"
 	"    if os.path.exists(test):\n"
 	"        site.addsitedir(test)\n"
-	"# run the application startup script kept next to the exe\n"
-	"script = os.path.join(PYSTAND_HOME, 'main.py')\n"
-	"if not os.path.isfile(script):\n"
-	"    os.MessageBox('Cannot find ' + script, 'ERROR')\n"
-	"    sys.exit(2)\n"
-	"sys.argv = [script] + sys.argv[1:]\n"
-	"environ = {'__file__': script, '__name__': '__main__', '__package__': None}\n"
-	"with open(script, 'rb') as fp:\n"
-	"    code = compile(fp.read(), script, 'exec')\n"
+	"# argv[0] is the startup script, just like for a .py/.pyw script on the command line\n"
+	"sys.argv = [PYSTAND_SCRIPT] + sys.argv[1:]\n"
+	// >>> BEGIN main.py (embedded verbatim - edit main.py, then re-run tools/gen_embed.py) >>>
+	"\"\"\"PyStand startup script - the entry point of the application.\n"
+	"\n"
+	"The text of this file is embedded verbatim into PyStand.cpp, so PyStand.exe\n"
+	"stays one self-contained executable that needs no .int script beside it.  It\n"
+	"is ordinary Python as well, so it runs unchanged under a normal interpreter\n"
+	"while developing:\n"
+	"\n"
+	"    PyStand.exe     -> the embedded copy of this file\n"
+	"    python main.py  -> this file\n"
+	"\n"
+	"Rules that keep the embedding working:\n"
+	"  * keep this file ASCII only - PyStand converts the embedded C string with the\n"
+	"    ANSI code page, so non-ASCII characters here would come out mangled;\n"
+	"  * after editing, run \"python tools/gen_embed.py\" to refresh the embedded\n"
+	"    copy inside PyStand.cpp - \"python tools/check_embed.py\" fails when the two\n"
+	"    ever drift apart.\n"
+	"\"\"\"\n"
+	"\n"
+	"import os\n"
+	"import sys\n"
+	"\n"
+	"# Keep __pycache__ out of the installation directory: it is often read-only\n"
+	"# (Program Files) and must not be littered with build artifacts.\n"
+	"sys.dont_write_bytecode = True\n"
+	"\n"
+	"# PyStand.exe exports PYSTAND; a plain interpreter does not.\n"
+	"if os.environ.get(\"PYSTAND\"):\n"
+	"    sys.frozen = True\n"
+	"    try:\n"
+	"        import multiprocessing\n"
+	"        multiprocessing.freeze_support()\n"
+	"    except Exception:\n"
+	"        pass\n"
+	"\n"
+	"# The application module (app.py) sits next to this file.  Inside PyStand.exe\n"
+	"# there is no __file__ and PYSTAND_HOME - the directory of the executable -\n"
+	"# takes its place; the directory is already on sys.path by then, but putting it\n"
+	"# first makes the application win over any same-named site-packages module.\n"
 	"try:\n"
-	"    exec(code, environ)\n"
-	"except SystemExit:\n"
-	"    raise\n"
-	"except Exception:\n"
-	"    if attached:\n"
-	"        raise\n"
-	"    import traceback, io\n"
-	"    sio = io.StringIO()\n"
-	"    traceback.print_exc(file = sio)\n"
-	"    os.MessageBox(sio.getvalue(), 'Error')\n"
-	"    sys.exit(1)\n"
+	"    base = os.path.dirname(os.path.abspath(__file__))\n"
+	"except NameError:\n"
+	"    base = os.environ.get(\"PYSTAND_HOME\") or os.getcwd()\n"
+	"if base and base not in sys.path:\n"
+	"    sys.path.insert(0, base)\n"
+	"\n"
+	"import app\n"
+	"\n"
+	"if __name__ == \"__main__\":\n"
+	"    app.start()\n"
+	// <<< END main.py <<<
 	"";
+// ==== END GENERATED startup_script ====
 
 //---------------------------------------------------------------------
 // main
@@ -485,8 +543,8 @@ WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int show)
 	}
 #endif
 	int hr;
-	// DetectScript() sets this flag when no PyStand.int/.py/.pyw exists next
-	// to the exe; the embedded startup script then runs main.py.
+	// DetectScript() sets this flag when no <exe name>.int/.py/.pyw exists
+	// next to the exe: the embedded copy of main.py is the entry point then.
 	if (ps._useCustomScript) {
 		hr = ps.RunString(startup_script);
 	}

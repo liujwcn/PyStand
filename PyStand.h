@@ -34,7 +34,7 @@ public:
 
 
 	int DetectScript();
-	bool _useCustomScript; // true: run the embedded startup script (main.py)
+	bool _useCustomScript; // true: no <exe name>.int/.py/.pyw next to the exe, run the embedded main.py
 
 protected:
 	bool CheckEnviron(const wchar_t *rtp);
